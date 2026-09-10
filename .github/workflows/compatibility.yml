@@ -198,74 +198,24 @@ jobs:
         env:
           APP_DIR: ${{ runner.temp }}/wallet-kit-agp9-${{ matrix.new-dsl }}
           ARCHITECTURE: new
-          REACT_NATIVE_VERSION: '0.86.2'
+          REACT_NATIVE_VERSION: '0.87.1'
           REACT_VERSION: '19.2.5'
         run: |
           mkdir -p "$APP_DIR"
           rsync -a --exclude /android --exclude /ios --exclude /node_modules --exclude /dist example/ "$APP_DIR/"
           TARBALL=$(find "$RUNNER_TEMP/wallet-kit-package" -maxdepth 1 -name '*.tgz' -print -quit)
-          node scripts/prepare-compatibility-app.mjs --app "$APP_DIR" --tarball "$TARBALL" --react-native "$REACT_NATIVE_VERSION" --react "$REACT_VERSION" --architecture "$ARCHITECTURE" --native-tests false
+          node scripts/prepare-compatibility-app.mjs --app "$APP_DIR" --tarball "$TARBALL" --react-native "$REACT_NATIVE_VERSION" --react "$REACT_VERSION" --architecture "$ARCHITECTURE" --native-tests false --agp9 true
           cd "$APP_DIR"
           corepack enable
           corepack prepare yarn@4.18.0 --activate
           YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn install
           yarn install --immutable
           yarn build:android
-          yarn configure --force --platforms android
-          cd "$GITHUB_WORKSPACE"
-          node scripts/prepare-compatibility-app.mjs --app "$APP_DIR" --tarball "$TARBALL" --react-native "$REACT_NATIVE_VERSION" --react "$REACT_VERSION" --architecture "$ARCHITECTURE" --native-tests false
-
-      - name: Pin AGP 9.2.1 and Gradle 9.6.1
-        env:
-          APP_DIR: ${{ runner.temp }}/wallet-kit-agp9-${{ matrix.new-dsl }}
-          AGP_VERSION: 9.2.1
-          GRADLE_VERSION: 9.6.1
-        run: |
-          node --input-type=module -e '
-            import fs from "node:fs";
-            import path from "node:path";
-            const appDir = process.env.APP_DIR;
-            const agp = process.env.AGP_VERSION;
-
-            // react-native-test-app supplies the AGP classpath, so force the
-            // version inside the existing buildscript block rather than editing
-            // the dependency list.
-            const buildGradle = path.join(appDir, "android", "build.gradle");
-            const source = fs.readFileSync(buildGradle, "utf8");
-            if (!source.startsWith("buildscript {")) {
-              throw new Error("android/build.gradle does not open with a buildscript block");
-            }
-            const force = [
-              "buildscript {",
-              "    configurations.classpath {",
-              `        resolutionStrategy.force("com.android.tools.build:gradle:${agp}")`,
-              "    }",
-            ].join("\n");
-            fs.writeFileSync(buildGradle, source.replace("buildscript {", force));
-
-            const wrapper = path.join(appDir, "android", "gradle", "wrapper", "gradle-wrapper.properties");
-            const properties = fs.readFileSync(wrapper, "utf8");
-            if (!/^distributionUrl=.*$/m.test(properties)) {
-              throw new Error("Gradle wrapper properties has no distributionUrl");
-            }
-            const url = `distributionUrl=https\\://services.gradle.org/distributions/gradle-${process.env.GRADLE_VERSION}-bin.zip`;
-            fs.writeFileSync(wrapper, properties.replace(/^distributionUrl=.*$/m, url));
-          '
-
-      - name: Verify the pinned versions took effect
-        working-directory: ${{ runner.temp }}/wallet-kit-agp9-${{ matrix.new-dsl }}/android
-        run: |
-          ./gradlew --version | grep -E "^Gradle "
-          ./gradlew :azizuysal_wallet-kit:buildEnvironment --console=plain \
-            -Pandroid.newDsl=${{ matrix.new-dsl }} \
-            -Pandroid.builtInKotlin=${{ matrix.built-in-kotlin }} \
-            | grep -E "com\.android\.tools\.build:gradle:9\." \
-            || { echo "AGP did not resolve to 9.x; the pin did not take effect"; exit 1; }
 
       - name: Run Android native tests and Debug build
         working-directory: ${{ runner.temp }}/wallet-kit-agp9-${{ matrix.new-dsl }}/android
         run: |
-          ./gradlew :azizuysal_wallet-kit:testDebugUnitTest :app:assembleDebug \
+          ./gradlew verifyAgp9 :azizuysal_wallet-kit:testDebugUnitTest :app:assembleDebug \
             -PreactNativeArchitectures=x86_64 \
             -Pandroid.newDsl=${{ matrix.new-dsl }} \
             -Pandroid.builtInKotlin=${{ matrix.built-in-kotlin }} \
